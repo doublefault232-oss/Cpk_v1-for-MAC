@@ -1,0 +1,13 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Initialize Python Project",
+			"type": "shell",
+			"command": "python3 -m venv venv && source venv/bin/activate && pip install pandas openpyxl numpy matplotlib",
+			"args": [],
+			"isBackground": false,
+			"problemMatcher": []
+		}
+	]
+}
