@@ -33,6 +33,33 @@ def generate_imr_chart(data):
     plt.tight_layout()
     return fig
 
+def generate_histogram_capacity(data, usl, lsl):
+    fig, ax = plt.subplots(figsize=(8, 5))
+    ax.hist(data, bins='auto', color='#4C72B0', edgecolor='white', alpha=0.9)
+    ax.set_title('Histogram')
+    ax.set_xlabel('Value')
+    ax.set_ylabel('Frequency')
+
+    mean = np.mean(data)
+    std = np.std(data)
+
+    # USL/LSL lines
+    if not np.isnan(usl):
+        ax.axvline(usl, color='r', linestyle='--', linewidth=2, label='USL')
+    if not np.isnan(lsl):
+        ax.axvline(lsl, color='r', linestyle='--', linewidth=2, label='LSL')
+
+    # Mean line
+    ax.axvline(mean, color='k', linestyle='-', linewidth=1, label='Mean')
+
+    # Cp line positions (show +/- 3 sigma)
+    ax.axvline(mean + 3*std, color='gray', linestyle=':', linewidth=1)
+    ax.axvline(mean - 3*std, color='gray', linestyle=':', linewidth=1)
+
+    ax.legend()
+    plt.tight_layout()
+    return fig
+
 st.title("Cpk 분석 및 IMR 차트 생성")
 
 uploaded_file = st.file_uploader("엑셀 파일을 업로드하세요", type=["xlsx"])
@@ -52,8 +79,56 @@ if uploaded_file is not None:
 
     if st.button("Cpk 계산 및 IMR 차트 생성"):
         measurement_data = data[column].dropna()
-        cpk = calculate_cpk(measurement_data, usl, lsl)
-        st.write(f"Cpk: {cpk}")
+        # convert usl/lsl to float or NaN
+        usl_val = float(usl) if usl is not None else np.nan
+        lsl_val = float(lsl) if lsl is not None else np.nan
 
-        fig = generate_imr_chart(measurement_data)
-        st.pyplot(fig)
+        mean = np.mean(measurement_data)
+        std = np.std(measurement_data)
+        n = len(measurement_data)
+        cp = (usl_val - lsl_val) / (6*std) if (not np.isnan(usl_val) and not np.isnan(lsl_val) and std>0) else np.nan
+        cpu = (usl_val - mean) / (3*std) if (not np.isnan(usl_val) and std>0) else np.nan
+        cpl = (mean - lsl_val) / (3*std) if (not np.isnan(lsl_val) and std>0) else np.nan
+        cpk = min(cpu, cpl)
+
+        # Top-level metrics
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("N", f"{n}")
+        m2.metric("Mean", f"{mean:.4f}")
+        m3.metric("Std Dev", f"{std:.4f}")
+        m4.metric("Cpk", f"{cpk:.4f}" if not np.isnan(cpk) else "N/A")
+
+        # Layout: left histogram+capability table, right IMR
+        left, right = st.columns([2, 2])
+
+        with left:
+            st.subheader("Histogram & Capability")
+            hist_fig = generate_histogram_capacity(measurement_data, usl_val, lsl_val)
+            st.pyplot(hist_fig)
+
+            # capability table
+            cap_df = pd.DataFrame({
+                'Statistic': ['N', 'Mean', 'Std Dev', 'Cp', 'Cpu', 'Cpl', 'Cpk', 'USL', 'LSL'],
+                'Value': [n, mean, std, cp, cpu, cpl, cpk, usl_val, lsl_val]
+            })
+            st.table(cap_df.set_index('Statistic'))
+
+            # Download measurement CSV
+            csv_bytes = measurement_data.to_csv(index=False).encode('utf-8')
+            st.download_button("Download data (CSV)", data=csv_bytes, file_name=f"{selected_sheet}_{column}.csv", mime='text/csv')
+
+        with right:
+            st.subheader("I-MR Chart")
+            imr_fig = generate_imr_chart(measurement_data)
+            st.pyplot(imr_fig)
+
+            # Download images
+            buf = BytesIO()
+            hist_fig.savefig(buf, format='png')
+            buf.seek(0)
+            st.download_button("Download histogram (PNG)", data=buf, file_name='histogram.png', mime='image/png')
+
+            buf2 = BytesIO()
+            imr_fig.savefig(buf2, format='png')
+            buf2.seek(0)
+            st.download_button("Download IMR chart (PNG)", data=buf2, file_name='imr_chart.png', mime='image/png')
